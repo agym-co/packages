@@ -37,6 +37,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
@@ -184,6 +185,42 @@ public final class VideoPlayerTest {
 
     videoPlayer.seekTo(10L);
     verify(mockExoPlayer).seekTo(10);
+
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void seekToZeroCallsStopAndPrepareWhenPlayerIsInEndedState() {
+    // Regression test for https://github.com/flutter/flutter/issues/170737.
+    // Seeking from STATE_ENDED can cause ~60-second buffering on physical
+    // Android devices. Resetting via stop()+seekToDefaultPosition()+prepare()
+    // avoids the problematic seek path.
+    VideoPlayer videoPlayer = createVideoPlayer();
+
+    when(mockExoPlayer.getPlaybackState()).thenReturn(Player.STATE_ENDED);
+    videoPlayer.seekTo(0L);
+
+    InOrder inOrder = inOrder(mockExoPlayer);
+    inOrder.verify(mockExoPlayer).stop();
+    inOrder.verify(mockExoPlayer).seekToDefaultPosition();
+    inOrder.verify(mockExoPlayer).prepare();
+    verify(mockExoPlayer, never()).seekTo(0L);
+
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void seekToDoesNotCallPrepareWhenPlayerIsNotInEndedState() {
+    // prepare() should only be called when exiting STATE_ENDED, not during
+    // normal playback seeking.
+    VideoPlayer videoPlayer = createVideoPlayer();
+    clearInvocations(mockExoPlayer);
+
+    when(mockExoPlayer.getPlaybackState()).thenReturn(Player.STATE_READY);
+    videoPlayer.seekTo(5000L);
+
+    verify(mockExoPlayer, never()).prepare();
+    verify(mockExoPlayer).seekTo(5000L);
 
     videoPlayer.dispose();
   }

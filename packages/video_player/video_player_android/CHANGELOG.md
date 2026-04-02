@@ -1,3 +1,9 @@
+## 2.9.6
+
+* Fixes replay after completion on some physical Android devices by resetting
+  ExoPlayer before seeks from `STATE_ENDED`, avoiding long buffering after a
+  completed video.
+
 ## 2.9.5
 
 * Updates build files from Groovy to Kotlin.
