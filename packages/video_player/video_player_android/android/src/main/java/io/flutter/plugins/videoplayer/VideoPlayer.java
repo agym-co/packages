@@ -137,9 +137,33 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @Override
   public void seekTo(long position) {
     int stateBefore = exoPlayer.getPlaybackState();
+
+    // When the video is completed, the Flutter controller seeks to end of the
+    // video (`seekTo(duration)`), to ensure the platform stops playing and
+    // seeks to the last frame of the video. See
+    // https://github.com/agym-co/packages/blob/349d8853cab54514b15173337f3203093ccda106/packages/video_player/video_player/lib/video_player.dart#L63.
+    //
+    // On a few Android devices (e.g. Google Pixel 9a - tested with Android 16),
+    // this can cause issues: Before being able to reply the video, the video
+    // buffers around 60 seconds. See
+    // https://github.com/flutter/flutter/issues/170737.
+    //
+    // To fix this, a hacky workaround is to stop the player and seek to the
+    // default position (normally the start of the video) and call prepare().
+    //
+    // Side-effect: When the video is completed, it starts buffering for a few
+    // seconds (~3 seconds) again for all devices even if this device wasn't
+    // affected by the issue before. Normally, this shouldn't happen and there
+    // should be no buffering after the video is completed.
+    //
+    // It might be an issue in the upstream Jetpack Media3 library (previously
+    // known as ExoPlayer) that causes this behavior but I couldn't find any
+    // GitHub issues about it and decided not to investigate further.
     if (stateBefore == STATE_ENDED) {
       exoPlayer.stop();
       if (position <= 0) {
+        // Jump to the default position (normally the start of the video, for
+        // live streams it's the live edge).
         exoPlayer.seekToDefaultPosition();
       }
       exoPlayer.prepare();
@@ -150,6 +174,7 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
         return;
       }
     }
+
     exoPlayer.seekTo(position);
   }
 
