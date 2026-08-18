@@ -13,6 +13,17 @@ final class DefaultCamera: NSObject, Camera {
   var dartAPI: FCPCameraEventApi?
   var onFrameAvailable: (() -> Void)?
 
+  /// Called on the capture session queue with each QR string the pipeline
+  /// decodes, once detection has been enabled.
+  var onQrCode: ((String) -> Void)?
+
+  /// Decodes QR codes inside the capture pipeline itself.
+  ///
+  /// Nil when the session could not take another output. Detection costs
+  /// nothing until a delegate is attached, so an output nobody scans with is
+  /// only an idle attachment on the session.
+  private var qrMetadataOutput: AVCaptureMetadataOutput?
+
   var videoFormat: FourCharCode = kCVPixelFormatType_32BGRA {
     didSet {
       captureVideoOutput.videoSettings = [
@@ -198,6 +209,8 @@ final class DefaultCamera: NSObject, Camera {
     videoCaptureSession.addConnection(connection)
 
     videoCaptureSession.addOutput(capturePhotoOutput.avOutput)
+
+    addQrMetadataOutput()
 
     motionManager.startAccelerometerUpdates()
 
@@ -1418,5 +1431,53 @@ final class DefaultCamera: NSObject, Camera {
 
   deinit {
     motionManager.stopAccelerometerUpdates()
+  }
+}
+
+extension DefaultCamera {
+  /// Channel names for the QR side API, shared with `CameraPlugin`.
+  static let qrMethodChannelName = "agym/camera_avfoundation/qr"
+  static let qrEventChannelName = "agym/camera_avfoundation/qr_events"
+
+  /// Attaches the metadata output that decodes QR codes in the capture
+  /// pipeline, so a scan never copies a frame out to Dart.
+  ///
+  /// The supported types are only published once the output belongs to a
+  /// session, so they are read after adding rather than before.
+  fileprivate func addQrMetadataOutput() {
+    let output = AVCaptureMetadataOutput()
+    guard videoCaptureSession.canAddOutput(output) else { return }
+    videoCaptureSession.addOutput(output)
+
+    guard output.availableMetadataObjectTypes.contains(.qr) else { return }
+    output.metadataObjectTypes = [.qr]
+    qrMetadataOutput = output
+  }
+
+  /// Starts or stops QR delivery.
+  ///
+  /// Only the delegate is attached or detached, so toggling never
+  /// reconfigures the capture session and the preview is undisturbed.
+  func setQrDetectionEnabled(_ enabled: Bool) {
+    qrMetadataOutput?.setMetadataObjectsDelegate(
+      enabled ? self : nil,
+      queue: captureSessionQueue)
+  }
+}
+
+extension DefaultCamera: AVCaptureMetadataOutputObjectsDelegate {
+  func metadataOutput(
+    _ output: AVCaptureMetadataOutput,
+    didOutput metadataObjects: [AVMetadataObject],
+    from connection: AVCaptureConnection
+  ) {
+    for object in metadataObjects {
+      guard let code = object as? AVMetadataMachineReadableCodeObject,
+        let value = code.stringValue,
+        !value.isEmpty
+      else { continue }
+
+      onQrCode?(value)
+    }
   }
 }

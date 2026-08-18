@@ -26,6 +26,11 @@ public final class CameraPlugin: NSObject, FlutterPlugin {
   /// An internal camera object that manages camera's state and performs camera operations.
   var camera: Camera?
 
+  /// Retains the QR side channels for the lifetime of the plugin.
+  private var qrMethodChannel: FlutterMethodChannel?
+  private var qrEventChannel: FlutterEventChannel?
+  private let qrStreamHandler = QrStreamHandler()
+
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = CameraPlugin(
       registry: registrar.textures(),
@@ -44,6 +49,35 @@ public final class CameraPlugin: NSObject, FlutterPlugin {
     )
 
     SetUpFCPCameraApi(registrar.messenger(), instance)
+    instance.registerQrChannels(messenger: registrar.messenger())
+  }
+
+  /// Wires the QR side channels.
+  ///
+  /// Deliberately kept off the Pigeon API so this fork stays a small delta
+  /// against upstream and needs no code generation to rebase.
+  private func registerQrChannels(messenger: FlutterBinaryMessenger) {
+    let methodChannel = FlutterMethodChannel(
+      name: DefaultCamera.qrMethodChannelName, binaryMessenger: messenger)
+    methodChannel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "setQrDetectionEnabled" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+
+      let arguments = call.arguments as? [String: Any]
+      let enabled = arguments?["enabled"] as? Bool ?? false
+      self?.captureSessionQueue.async {
+        (self?.camera as? DefaultCamera)?.setQrDetectionEnabled(enabled)
+      }
+      result(nil)
+    }
+    qrMethodChannel = methodChannel
+
+    let eventChannel = FlutterEventChannel(
+      name: DefaultCamera.qrEventChannelName, binaryMessenger: messenger)
+    eventChannel.setStreamHandler(qrStreamHandler)
+    qrEventChannel = eventChannel
   }
 
   init(
@@ -303,6 +337,14 @@ extension CameraPlugin: FCPCameraApi {
 
     camera.videoFormat = FCPGetPixelFormatForPigeonFormat(imageFormat)
 
+    (camera as? DefaultCamera)?.onQrCode = { [weak self] value in
+      // Hop to the main queue because the sink must not be fed from the
+      // capture session queue.
+      DispatchQueue.main.async {
+        self?.qrStreamHandler.send(value)
+      }
+    }
+
     camera.onFrameAvailable = { [weak self] in
       guard let camera = self?.camera else { return }
       if !camera.isPreviewPaused {
@@ -548,5 +590,26 @@ extension CameraPlugin: FCPCameraApi {
       self?.camera?.setImageFileFormat(format)
       completion(nil)
     }
+  }
+}
+
+/// Bridges decoded QR strings to Dart over an event channel.
+final class QrStreamHandler: NSObject, FlutterStreamHandler {
+  private var sink: FlutterEventSink?
+
+  func send(_ value: String) {
+    sink?(value)
+  }
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink)
+    -> FlutterError?
+  {
+    sink = events
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    sink = nil
+    return nil
   }
 }
