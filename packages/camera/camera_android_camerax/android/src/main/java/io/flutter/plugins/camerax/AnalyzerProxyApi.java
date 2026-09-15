@@ -37,7 +37,7 @@ class AnalyzerProxyApi extends PigeonApiAnalyzer {
     @androidx.camera.core.ExperimentalGetImage
     public void analyze(@NonNull ImageProxy image) {
       QrDetectionBridge qr = QrDetectionBridge.getInstance();
-      if (qr.isEnabled()) {
+      if (qr.isEnabled(this)) {
         // Decode here and send up only the string. The frame never crosses to
         // Dart, which is where nearly all of the cost of detection sits.
         qr.analyze(image, api.getPigeonRegistrar());

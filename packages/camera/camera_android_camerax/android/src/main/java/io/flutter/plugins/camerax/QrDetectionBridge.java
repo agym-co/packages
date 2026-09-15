@@ -45,6 +45,15 @@ final class QrDetectionBridge {
   private MethodChannel methodChannel;
   private EventChannel eventChannel;
   private volatile EventChannel.EventSink sink;
+
+  /**
+   * The analyzer whose frames this bridge consumes.
+   *
+   * <p>Claimed by the first analyzer to deliver a frame after detection is enabled, which is the
+   * camera that asked to scan. Every other analyzer the plugin serves keeps forwarding its frames
+   * to Dart, so a camera that never asked for QR cannot be starved.
+   */
+  private volatile Object owner;
   private volatile boolean enabled;
 
   private QrDetectionBridge() {}
@@ -85,8 +94,17 @@ final class QrDetectionBridge {
    * that forgot to clear it would go on intercepting frames belonging to some unrelated image
    * stream, which would then silently receive none. Nobody listening means nobody wants them.
    */
-  boolean isEnabled() {
-    return enabled && sink != null;
+  boolean isEnabled(@NonNull Object analyzer) {
+    if (!enabled || sink == null) {
+      return false;
+    }
+
+    Object current = owner;
+    if (current == null) {
+      owner = analyzer;
+      return true;
+    }
+    return current == analyzer;
   }
 
   void attach(@NonNull BinaryMessenger messenger) {
@@ -102,6 +120,9 @@ final class QrDetectionBridge {
 
           Boolean argument = call.argument("enabled");
           enabled = Boolean.TRUE.equals(argument);
+          if (!enabled) {
+            owner = null;
+          }
           result.success(null);
         });
 
@@ -131,6 +152,7 @@ final class QrDetectionBridge {
     }
     enabled = false;
     sink = null;
+    owner = null;
 
     BarcodeScanner current = scanner;
     scanner = null;
@@ -162,12 +184,20 @@ final class QrDetectionBridge {
       return;
     }
 
-    InputImage input =
-        InputImage.fromMediaImage(mediaImage, image.getImageInfo().getRotationDegrees());
-    scanner()
-        .process(input)
-        .addOnSuccessListener(barcodes -> emitFirstValue(barcodes, registrar))
-        .addOnCompleteListener(task -> image.close());
+    // CameraX withholds the next frame until this one is closed, so anything
+    // thrown before the completion listener is attached would stall the
+    // analyzer for good.
+    try {
+      InputImage input =
+          InputImage.fromMediaImage(mediaImage, image.getImageInfo().getRotationDegrees());
+      scanner()
+          .process(input)
+          .addOnSuccessListener(barcodes -> emitFirstValue(barcodes, registrar))
+          .addOnCompleteListener(task -> image.close());
+    } catch (RuntimeException e) {
+      android.util.Log.w("QrDetectionBridge", "Could not decode a frame", e);
+      image.close();
+    }
   }
 
   private void emitFirstValue(
