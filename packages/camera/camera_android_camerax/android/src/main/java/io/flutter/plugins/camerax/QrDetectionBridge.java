@@ -44,7 +44,7 @@ final class QrDetectionBridge {
   private volatile long lastScanUptimeMs;
   private MethodChannel methodChannel;
   private EventChannel eventChannel;
-  private EventChannel.EventSink sink;
+  private volatile EventChannel.EventSink sink;
   private volatile boolean enabled;
 
   private QrDetectionBridge() {
@@ -65,12 +65,20 @@ final class QrDetectionBridge {
     return instance;
   }
 
-  /** Whether frames should be decoded here rather than forwarded to Dart. */
+  /**
+   * Whether frames should be decoded here rather than forwarded to Dart.
+   *
+   * <p>Requires a listener as well as the flag. The flag is process wide, so on its own a screen
+   * that forgot to clear it would go on intercepting frames belonging to some unrelated image
+   * stream, which would then silently receive none. Nobody listening means nobody wants them.
+   */
   boolean isEnabled() {
-    return enabled;
+    return enabled && sink != null;
   }
 
   void attach(@NonNull BinaryMessenger messenger) {
+    // The instance outlives an engine restart, so never inherit a stale flag.
+    enabled = false;
     methodChannel = new MethodChannel(messenger, METHOD_CHANNEL);
     methodChannel.setMethodCallHandler(
         (call, result) -> {
