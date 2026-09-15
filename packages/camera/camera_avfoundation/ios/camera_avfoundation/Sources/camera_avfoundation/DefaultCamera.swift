@@ -1436,8 +1436,8 @@ final class DefaultCamera: NSObject, Camera {
 
 extension DefaultCamera {
   /// Channel names for the QR side API, shared with `CameraPlugin`.
-  static let qrMethodChannelName = "agym/camera_avfoundation/qr"
-  static let qrEventChannelName = "agym/camera_avfoundation/qr_events"
+  static let qrMethodChannelName = "agym/camera/qr"
+  static let qrEventChannelName = "agym/camera/qr_events"
 
   /// Attaches the metadata output that decodes QR codes in the capture
   /// pipeline, so a scan never copies a frame out to Dart.
