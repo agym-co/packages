@@ -40,17 +40,30 @@ final class QrDetectionBridge {
    */
   private static final long MIN_SCAN_INTERVAL_MS = 200;
 
-  private final BarcodeScanner scanner;
+  private volatile BarcodeScanner scanner;
   private volatile long lastScanUptimeMs;
   private MethodChannel methodChannel;
   private EventChannel eventChannel;
   private volatile EventChannel.EventSink sink;
   private volatile boolean enabled;
 
-  private QrDetectionBridge() {
-    scanner =
-        BarcodeScanning.getClient(
-            new BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build());
+  private QrDetectionBridge() {}
+
+  /**
+   * The detector, built on first use.
+   *
+   * <p>Built lazily because this class is attached for every camera the plugin serves, while only
+   * one screen ever turns detection on. An app that never scans should not pay for a detector.
+   */
+  private BarcodeScanner scanner() {
+    BarcodeScanner current = scanner;
+    if (current == null) {
+      current =
+          BarcodeScanning.getClient(
+              new BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build());
+      scanner = current;
+    }
+    return current;
   }
 
   /** The bridge shared by every camera the plugin creates. */
@@ -118,6 +131,12 @@ final class QrDetectionBridge {
     }
     enabled = false;
     sink = null;
+
+    BarcodeScanner current = scanner;
+    scanner = null;
+    if (current != null) {
+      current.close();
+    }
   }
 
   /**
@@ -145,7 +164,7 @@ final class QrDetectionBridge {
 
     InputImage input =
         InputImage.fromMediaImage(mediaImage, image.getImageInfo().getRotationDegrees());
-    scanner
+    scanner()
         .process(input)
         .addOnSuccessListener(barcodes -> emitFirstValue(barcodes, registrar))
         .addOnCompleteListener(task -> image.close());
