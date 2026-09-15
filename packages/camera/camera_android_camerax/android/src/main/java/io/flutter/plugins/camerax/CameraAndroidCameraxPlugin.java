@@ -25,6 +25,7 @@ public final class CameraAndroidCameraxPlugin implements FlutterPlugin, Activity
 
   @Override
   public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
+    QrDetectionBridge.getInstance().attach(binding.getBinaryMessenger());
     pluginBinding = binding;
 
     proxyApiRegistrar =
@@ -37,6 +38,7 @@ public final class CameraAndroidCameraxPlugin implements FlutterPlugin, Activity
 
   @Override
   public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+    QrDetectionBridge.getInstance().detach();
     if (proxyApiRegistrar != null) {
       proxyApiRegistrar.setIgnoreCallsToDart(true);
       proxyApiRegistrar.tearDown();

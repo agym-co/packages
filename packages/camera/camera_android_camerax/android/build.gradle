@@ -78,6 +78,10 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:${camerax_version}")
     implementation("androidx.camera:camera-video:${camerax_version}")
     implementation("com.google.guava:guava:33.5.0-android")
+    // Decodes QR codes on the analyzer instead of forwarding frames to Dart.
+    // The app already ships this exact artifact through mobile_scanner, so it
+    // costs nothing in the APK.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.19.0")
     testImplementation("org.mockito:mockito-inline:5.2.0")
