@@ -24,6 +24,14 @@ final class DefaultCamera: NSObject, Camera {
   /// only an idle attachment on the session.
   private var qrMetadataOutput: AVCaptureMetadataOutput?
 
+  /// Shortest gap between two reported codes.
+  ///
+  /// The metadata output reports on every frame a code is visible, so without
+  /// this a code held in view crosses the platform boundary about thirty times
+  /// a second. Matches the Android analyzer's cap.
+  private static let minQrReportInterval: CFTimeInterval = 0.2
+  private var lastQrReportTime: CFTimeInterval = 0
+
   var videoFormat: FourCharCode = kCVPixelFormatType_32BGRA {
     didSet {
       captureVideoOutput.videoSettings = [
@@ -1471,13 +1479,19 @@ extension DefaultCamera: AVCaptureMetadataOutputObjectsDelegate {
     didOutput metadataObjects: [AVMetadataObject],
     from connection: AVCaptureConnection
   ) {
+    let now = CACurrentMediaTime()
+    guard now - lastQrReportTime >= DefaultCamera.minQrReportInterval else { return }
+
     for object in metadataObjects {
       guard let code = object as? AVMetadataMachineReadableCodeObject,
         let value = code.stringValue,
         !value.isEmpty
       else { continue }
 
+      // One code per callback is enough. Dart dedups and only ever acts on one.
+      lastQrReportTime = now
       onQrCode?(value)
+      return
     }
   }
 }
