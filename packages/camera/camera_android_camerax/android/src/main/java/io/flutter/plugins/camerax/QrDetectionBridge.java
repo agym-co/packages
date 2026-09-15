@@ -30,7 +30,18 @@ final class QrDetectionBridge {
 
   private static volatile QrDetectionBridge instance;
 
+  /**
+   * Shortest gap between two decodes.
+   *
+   * <p>Without this the analyzer decodes every frame it is handed, which CameraX paces at about 25
+   * a second because it withholds the next frame until this one is closed. Detection does not need
+   * that. Five a second is already more coverage than the streamed implementation managed, since
+   * that one only looked during its duty cycle's open windows.
+   */
+  private static final long MIN_SCAN_INTERVAL_MS = 200;
+
   private final BarcodeScanner scanner;
+  private volatile long lastScanUptimeMs;
   private MethodChannel methodChannel;
   private EventChannel eventChannel;
   private EventChannel.EventSink sink;
@@ -109,6 +120,15 @@ final class QrDetectionBridge {
    */
   @androidx.camera.core.ExperimentalGetImage
   void analyze(@NonNull ImageProxy image, @NonNull ProxyApiRegistrar registrar) {
+    long now = android.os.SystemClock.uptimeMillis();
+    if (now - lastScanUptimeMs < MIN_SCAN_INTERVAL_MS) {
+      // Closing is what lets CameraX hand over the next frame, so a skipped
+      // frame still has to be closed rather than dropped.
+      image.close();
+      return;
+    }
+    lastScanUptimeMs = now;
+
     android.media.Image mediaImage = image.getImage();
     if (mediaImage == null) {
       image.close();
